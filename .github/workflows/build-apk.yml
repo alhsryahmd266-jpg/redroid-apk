@@ -9,7 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -18,10 +18,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: artifacts/mobile/package.json
 
-      - name: Setup Java
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -31,63 +29,91 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install dependencies
-        working-directory: artifacts/mobile
         run: npm install --legacy-peer-deps
 
       - name: Install Expo CLI
         run: npm install -g @expo/cli
 
-      - name: Generate native Android project
-        working-directory: artifacts/mobile
+      - name: Run expo prebuild (generate android/ folder)
         run: npx expo prebuild --platform android --clean --no-install
         env:
           EXPO_NO_TELEMETRY: 1
 
       - name: Make Gradle executable
-        working-directory: artifacts/mobile/android
-        run: chmod +x gradlew
+        run: chmod +x android/gradlew
 
       - name: Build Release APK
-        working-directory: artifacts/mobile/android
+        working-directory: android
         run: ./gradlew assembleRelease --no-daemon
         env:
-          GRADLE_OPTS: -Xmx4g -XX:MaxMetaspaceSize=512m
+          GRADLE_OPTS: "-Xmx4g -XX:MaxMetaspaceSize=512m"
 
-      - name: Sign APK
-        id: sign_app
-        uses: r0adkll/sign-android-release@v1
-        with:
-          releaseDirectory: artifacts/mobile/android/app/build/outputs/apk/release
-          signingKeyBase64: ${{ secrets.KEYSTORE_BASE64 }}
-          alias: ${{ secrets.KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.STORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
+      - name: Generate signing keystore
+        run: |
+          keytool -genkeypair \
+            -alias redroid-key \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -keystore /tmp/redroid.keystore \
+            -storepass redroid2024 \
+            -keypass redroid2024 \
+            -dname "CN=REDroid, OU=SecurityTools, O=REDroid, L=Cairo, S=Cairo, C=EG" \
+            -noprompt
 
-      - name: Upload APK artifact
+      - name: Sign APK with apksigner
+        run: |
+          BUILD_TOOLS=$ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools/ | sort -V | tail -1)
+          $BUILD_TOOLS/apksigner sign \
+            --ks /tmp/redroid.keystore \
+            --ks-key-alias redroid-key \
+            --ks-pass pass:redroid2024 \
+            --key-pass pass:redroid2024 \
+            --out android/app/build/outputs/apk/release/REDroid-signed.apk \
+            android/app/build/outputs/apk/release/app-release-unsigned.apk
+          echo "APK signed successfully ✓"
+          ls -lh android/app/build/outputs/apk/release/
+
+      - name: Verify APK signature
+        run: |
+          BUILD_TOOLS=$ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools/ | sort -V | tail -1)
+          $BUILD_TOOLS/apksigner verify --verbose \
+            android/app/build/outputs/apk/release/REDroid-signed.apk
+          echo "Signature valid ✓"
+
+      - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: REDroid-APK
-          path: ${{ steps.sign_app.outputs.signedReleaseFile }}
+          name: REDroid-APK-${{ github.sha }}
+          path: android/app/build/outputs/apk/release/REDroid-signed.apk
+          retention-days: 90
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release with APK
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.sign_app.outputs.signedReleaseFile }}
-          name: REDroid ${{ github.ref_name }}
+          files: android/app/build/outputs/apk/release/REDroid-signed.apk
+          name: "🔴 REDroid ${{ github.ref_name }}"
           body: |
-            ## REDroid ${{ github.ref_name }}
-            
-            🔴 **أداة الهندسة العكسية الاحترافية لملفات APK**
-            
-            ### التحميل
-            قم بتحميل ملف `app-release-signed.apk` أدناه وثبّته على جهازك.
-            
-            ### الجديد في هذا الإصدار
-            - دليل 14 أداة هندسة عكسية عالمية
-            - 10 تقنيات تفصيلية خطوة بخطوة
-            - مرجع أوامر شامل مع إمكانية النسخ
-            - تصميم سايبرسيكيوريتي احترافي
+            ## 🔴 REDroid ${{ github.ref_name }}
+            ### أقوى مرجع لأدوات الهندسة العكسية على أندرويد
+
+            ---
+
+            ### 📥 التحميل
+            انقر على **`REDroid-signed.apk`** أدناه لتحميل التطبيق مباشرة.
+
+            ### ✨ الميزات
+            - **14 أداة** هندسة عكسية عالمية (JADX, Frida, Ghidra, APKTool, ...)
+            - **10 تقنيات** تفصيلية خطوة بخطوة
+            - مرجع أوامر شامل مع نسخ بلمسة واحدة
+            - تصميم سايبرسيكيوريتي احترافي (Dark Mode حصري)
+
+            ### 🔐 التوقيع الرقمي
+            التطبيق موقّع رقمياً بـ RSA-2048. للتثبيت:
+            1. فعّل "مصادر غير معروفة" في الإعدادات
+            2. افتح REDroid-signed.apk
+            3. اضغط تثبيت
           draft: false
           prerelease: false
         env:
