@@ -19,7 +19,7 @@
         "backgroundColor": "#050508"
       },
       "package": "com.redroid.apktools",
-      "versionCode": 2,
+      "versionCode": 3,
       "permissions": []
     },
     "ios": {
@@ -30,7 +30,7 @@
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
-      ["expo-router", {"origin": "https://replit.com/"}],
+      "expo-router",
       "expo-font"
     ],
     "experiments": {
