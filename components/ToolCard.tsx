@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Pressable } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Tool } from '@/constants/tools';
 import { C, TAG_COLORS, LEVEL_COLORS } from '@/constants/colors';
@@ -8,11 +8,21 @@ import { Badge } from './Badge';
 interface ToolCardProps {
   tool: Tool;
   onPress: () => void;
+  onPressIn?: () => void;
+  onPressOut?: () => void;
 }
 
-export const ToolCard = ({ tool, onPress }: ToolCardProps) => {
+export const ToolCard = ({ tool, onPress, onPressIn, onPressOut }: ToolCardProps) => {
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.7}>
+    <Pressable 
+      onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      style={({ pressed }) => [
+        styles.card,
+        pressed && styles.cardPressed
+      ]}
+    >
       <View style={styles.header}>
         <Text style={styles.name}>{tool.name}</Text>
         <View style={styles.starsContainer}>
@@ -31,7 +41,7 @@ export const ToolCard = ({ tool, onPress }: ToolCardProps) => {
         </View>
         <Feather name="chevron-right" size={20} color={C.textMuted} />
       </View>
-    </TouchableOpacity>
+    </Pressable>
   );
 };
 
@@ -43,6 +53,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: C.border,
+  },
+  cardPressed: {
+    backgroundColor: C.surfaceAlt,
+    borderColor: C.greenDim,
   },
   header: {
     flexDirection: 'row',
