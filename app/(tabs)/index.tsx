@@ -28,7 +28,9 @@ export default function HomeScreen() {
     ).start();
   }, []);
 
-  const featuredTools = TOOLS.slice(0, 4);
+  const featuredTools = TOOLS.filter(t => ['idapro', 'binaryninja', 'angr'].includes(t.id));
+  const eliteTools = TOOLS.filter(t => ['idapro', 'binaryninja', 'angr'].includes(t.id));
+  const recentTools = TOOLS.slice(0, 4);
 
   const paths = [
     { title: 'Static Analysis', icon: 'file-text', color: C.blue },
@@ -49,7 +51,7 @@ export default function HomeScreen() {
 
         <View style={styles.statsContainer}>
           <View style={styles.statBox}>
-            <Text style={styles.statValue}>14</Text>
+            <Text style={styles.statValue}>22</Text>
             <Text style={styles.statLabel}>Tools</Text>
           </View>
           <View style={styles.statDivider} />
@@ -59,9 +61,25 @@ export default function HomeScreen() {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statBox}>
-            <Text style={styles.statValue}>Pro</Text>
-            <Text style={styles.statLabel}>Grade</Text>
+            <Text style={styles.statValue}>9</Text>
+            <Text style={styles.statLabel}>Categories</Text>
           </View>
+        </View>
+
+        <View style={styles.banner}>
+          <Feather name="shield" size={20} color={C.green} />
+          <Text style={styles.bannerText}>Used at DEF CON & Black Hat</Text>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Elite Tools</Text>
+          {eliteTools.map(tool => (
+            <ToolCard 
+              key={tool.id} 
+              tool={tool} 
+              onPress={() => router.push(`/tool/${tool.id}`)} 
+            />
+          ))}
         </View>
 
         <View style={styles.section}>
@@ -71,7 +89,7 @@ export default function HomeScreen() {
               <Text style={styles.seeAll}>See All</Text>
             </TouchableOpacity>
           </View>
-          {featuredTools.map(tool => (
+          {recentTools.map(tool => (
             <ToolCard 
               key={tool.id} 
               tool={tool} 
@@ -157,6 +175,26 @@ const styles = StyleSheet.create({
     width: 1,
     height: '100%',
     backgroundColor: C.border,
+  },
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.surface,
+    marginHorizontal: 20,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.green + '40',
+    marginBottom: 24,
+    justifyContent: 'center',
+  },
+  bannerText: {
+    color: C.green,
+    fontSize: 13,
+    fontWeight: 'bold',
+    marginLeft: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   section: {
     paddingHorizontal: 20,
