@@ -4,11 +4,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      version_label:
-        description: 'Label للإصدار (مثال: beta, rc1)'
-        required: false
-        default: ''
 
 permissions:
   contents: write
@@ -20,7 +15,7 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js 20
@@ -38,136 +33,98 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Accept Android licenses
+      - name: Accept licenses
         run: yes | sdkmanager --licenses || true
 
-      - name: Compute release tag
+      - name: Set version tag
         run: |
           VER=$(node -p "require('./package.json').version")
-          LABEL="${{ github.event.inputs.version_label }}"
-          if [ -n "$LABEL" ]; then
-            TAG="v${VER}-${LABEL}"
-          else
-            TAG="v${VER}-build.${{ github.run_number }}"
-          fi
-          echo "APP_VERSION=${VER}"  >> $GITHUB_ENV
-          echo "RELEASE_TAG=${TAG}"  >> $GITHUB_ENV
-          echo "Tag will be: ${TAG}"
+          TAG="v${VER}-build.${{ github.run_number }}"
+          echo "APP_VERSION=${VER}" >> $GITHUB_ENV
+          echo "RELEASE_TAG=${TAG}" >> $GITHUB_ENV
+          echo "Tag: ${TAG}"
 
-      - name: Install dependencies
+      - name: Install JS deps
         run: npm install --legacy-peer-deps
         env:
-          EXPO_NO_TELEMETRY: 1
+          EXPO_NO_TELEMETRY: "1"
 
-      - name: Expo Prebuild Android
+      - name: Expo Prebuild
         run: npx expo prebuild --platform android --no-install --clean
         env:
-          EXPO_NO_TELEMETRY: 1
-          EXPO_NO_DOTENV: 1
+          EXPO_NO_TELEMETRY: "1"
+          EXPO_NO_DOTENV: "1"
 
-      - name: Fix Gradle properties
+      - name: Gradle setup
         run: |
           chmod +x android/gradlew
-          sed -i '/android\.kotlinVersion/d' android/gradle.properties
-          sed -i '/kotlin\.version/d' android/gradle.properties
-          sed -i '/kotlinVersion/d' android/gradle.properties
-          printf '
-org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g
-' >> android/gradle.properties
-          printf 'org.gradle.daemon=false
-' >> android/gradle.properties
-          printf 'org.gradle.parallel=false
-' >> android/gradle.properties
-          printf 'android.suppressUnsupportedCompileSdk=35
-' >> android/gradle.properties
-          echo "=== gradle.properties ==="
-          cat android/gradle.properties
+          cat >> android/gradle.properties << 'EOF'
+          org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g
+          org.gradle.daemon=false
+          org.gradle.parallel=false
+          android.suppressUnsupportedCompileSdk=35
+          EOF
 
       - name: Build Release APK
-        run: |
-          cd android
-          ./gradlew assembleRelease --no-daemon -x lint --stacktrace
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon -x lint --stacktrace
 
       - name: Locate APK
         run: |
           APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
           if [ -z "$APK" ]; then echo "APK not found!" && exit 1; fi
           echo "UNSIGNED_APK=${APK}" >> $GITHUB_ENV
-          echo "Found APK: $APK ($(du -h "$APK" | cut -f1))"
+          echo "APK: $APK ($(du -h $APK | cut -f1))"
 
-      - name: Generate RSA-4096 Keystore
+      - name: Generate Keystore (RSA-4096)
         run: |
           keytool -genkey -v \
-            -keystore redroid-release.jks \
-            -alias redroid-key \
+            -keystore redroid.jks \
+            -alias redroid \
             -keyalg RSA -keysize 4096 -validity 10000 \
-            -storepass REDroid2025! -keypass REDroid2025! -noprompt \
-            -dname "CN=REDroid Security, OU=RE, O=REDroid, L=Cairo, ST=Cairo, C=EG"
-          echo "✅ Keystore generated"
+            -storepass REDroid2025 -keypass REDroid2025 -noprompt \
+            -dname "CN=REDroid, OU=RE, O=REDroid, L=Cairo, ST=Cairo, C=EG"
 
-      - name: Zipalign APK
+      - name: Zipalign
         run: |
-          TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
-          echo "Using build-tools: $TOOLS"
-          $TOOLS/zipalign -v -p 4 "${{ env.UNSIGNED_APK }}" redroid-aligned.apk
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          $BT/zipalign -v -p 4 "$UNSIGNED_APK" redroid-aligned.apk
           echo "ALIGNED_APK=redroid-aligned.apk" >> $GITHUB_ENV
 
-      - name: Sign APK (RSA-4096 V2+V3)
+      - name: Sign APK
         run: |
-          TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
-          SIGNED_NAME="REDroid-${{ env.RELEASE_TAG }}-signed.apk"
-          $TOOLS/apksigner sign \
-            --ks redroid-release.jks \
-            --ks-key-alias redroid-key \
-            --ks-pass pass:REDroid2025! \
-            --key-pass pass:REDroid2025! \
-            --out "$SIGNED_NAME" \
-            "${{ env.ALIGNED_APK }}"
-          echo "SIGNED_APK=${SIGNED_NAME}" >> $GITHUB_ENV
-          echo "✅ Signed: $SIGNED_NAME ($(du -h "$SIGNED_NAME" | cut -f1))"
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          OUT="REDroid-${{ env.RELEASE_TAG }}-signed.apk"
+          $BT/apksigner sign \
+            --ks redroid.jks --ks-key-alias redroid \
+            --ks-pass pass:REDroid2025 --key-pass pass:REDroid2025 \
+            --out "$OUT" "${{ env.ALIGNED_APK }}"
+          echo "SIGNED_APK=${OUT}" >> $GITHUB_ENV
+          echo "Signed: $OUT ($(du -h $OUT | cut -f1))"
 
-      - name: Verify Signature
+      - name: Verify signature
         run: |
-          TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
-          $TOOLS/apksigner verify --verbose --print-certs "${{ env.SIGNED_APK }}"
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          $BT/apksigner verify --verbose "${{ env.SIGNED_APK }}"
 
-      - name: Upload APK Artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: REDroid-${{ env.RELEASE_TAG }}
           path: ${{ env.SIGNED_APK }}
           retention-days: 30
 
-      - name: Create GitHub Release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: "🔴 REDroid ${{ env.RELEASE_TAG }}"
           body: |
-            ## 🔴 REDroid ${{ env.APP_VERSION }} — مرجع الهندسة العكسية
+            ## 🔴 REDroid ${{ env.APP_VERSION }}
 
-            ### الأدوات المضمنة
-            - 29 أداة هندسة عكسية احترافية (JADX · Frida · Ghidra · IDA Pro · وأكثر)
-            - 10 تقنيات عملية خطوة بخطوة
-            - مرجع أوامر سريع مع نسخ بلمسة واحدة
-            - تصميم Cybersecurity داكن احترافي
+            29 أداة هندسة عكسية · 10 تقنيات عملية · تصميم Cybersecurity
 
-            ### التثبيت
-            1. حمّل الـ APK أدناه
-            2. فعّل "تثبيت من مصادر غير معروفة"
-            3. ثبّت وشغّل
-
-            ### التوقيع الرقمي
-            | الخاصية | القيمة |
-            |---|---|
-            | Algorithm | RSA-4096 |
-            | Validity | 10,000 يوم (~27 سنة) |
-            | Issued to | REDroid Security / Cairo, EG |
-            | Scheme | V2 + V3 |
-
-            **أندرويد 5.0+ (API 21+) · Build #${{ github.run_number }}**
+            RSA-4096 · V2+V3 · Build #${{ github.run_number }}
           files: ${{ env.SIGNED_APK }}
           draft: false
           prerelease: false
