@@ -4,19 +4,28 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      version_label:
+        description: 'Label للإصدار (اختياري: beta, rc1 ...)'
+        required: false
+        default: ''
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
+
     steps:
+      # ─── 1. Checkout ───────────────────────────────────────────
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ─── 2. Node + Java + Android SDK ──────────────────────────
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
       - name: Setup Java 17
         uses: actions/setup-java@v4
@@ -27,32 +36,57 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install dependencies
+      # ─── 3. Dynamic versioning ─────────────────────────────────
+      - name: Compute release tag
+        id: tag
         run: |
-          npm install --legacy-peer-deps
-        working-directory: .
+          VER=$(node -p "require('./package.json').version")
+          LABEL="${{ github.event.inputs.version_label }}"
+          if [ -n "$LABEL" ]; then
+            TAG="v${VER}-${LABEL}"
+          else
+            TAG="v${VER}-build.${{ github.run_number }}"
+          fi
+          echo "APP_VERSION=${VER}"      >> $GITHUB_ENV
+          echo "RELEASE_TAG=${TAG}"      >> $GITHUB_ENV
+          echo "SIGNED_APK=redroid-${TAG}-signed.apk" >> $GITHUB_ENV
+          echo "▶ Release tag: ${TAG}"
+
+      # ─── 4. Install deps ───────────────────────────────────────
+      - name: Install dependencies
+        run: npm install
 
       - name: Install Expo CLI
         run: npm install -g @expo/cli@latest
 
-      - name: Generate native Android project
-        run: |
-          npx expo prebuild --platform android --clean --no-install
-        working-directory: .
+      # ─── 5. Expo prebuild ──────────────────────────────────────
+      - name: Generate Android native project
+        run: npx expo prebuild --platform android --clean --no-install
+        env:
+          EXPO_NO_TELEMETRY: 1
+          EXPO_NO_DOTENV: 1
 
+      # ─── 6. Gradle build ───────────────────────────────────────
       - name: Make Gradle executable
         run: chmod +x android/gradlew
-        working-directory: .
 
       - name: Build Release APK
         run: |
           cd android
-          ./gradlew assembleRelease --no-daemon --stacktrace \
+          ./gradlew assembleRelease \
+            --no-daemon \
+            --stacktrace \
             -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=512m" \
             -Dorg.gradle.daemon=false
-        working-directory: .
 
-      - name: Generate signing keystore
+      - name: Locate unsigned APK
+        run: |
+          APK=$(find android/app/build/outputs/apk/release/ -name "*.apk" | head -1)
+          echo "UNSIGNED_APK=${APK}" >> $GITHUB_ENV
+          echo "▶ Unsigned APK: ${APK} ($(du -h "${APK}" | cut -f1))"
+
+      # ─── 7. Sign APK ───────────────────────────────────────────
+      - name: Generate keystore
         run: |
           keytool -genkeypair \
             -v \
@@ -67,56 +101,54 @@ jobs:
 
       - name: Sign APK with apksigner
         run: |
-          UNSIGNED_APK=$(find android/app/build/outputs/apk/release/ -name "*.apk" | head -1)
-          echo "Found APK: $UNSIGNED_APK"
-          BUILD_TOOLS_VERSION=$(ls $ANDROID_SDK_ROOT/build-tools/ | sort -V | tail -1)
-          echo "Build tools: $BUILD_TOOLS_VERSION"
-          $ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS_VERSION/apksigner sign \
+          BTV=$(ls $ANDROID_SDK_ROOT/build-tools/ | sort -V | tail -1)
+          echo "▶ Build tools: ${BTV}"
+          $ANDROID_SDK_ROOT/build-tools/${BTV}/apksigner sign \
             --ks redroid-release.keystore \
             --ks-key-alias redroid-key \
             --ks-pass pass:redroid2024 \
             --key-pass pass:redroid2024 \
-            --out redroid-v1.0.2-signed.apk \
-            "$UNSIGNED_APK"
-          echo "APK signed successfully!"
-          ls -lh redroid-v1.0.2-signed.apk
+            --out "${{ env.SIGNED_APK }}" \
+            "${{ env.UNSIGNED_APK }}"
+          echo "✅ Signed: ${{ env.SIGNED_APK }} ($(du -h "${{ env.SIGNED_APK }}" | cut -f1))"
 
       - name: Verify APK signature
         run: |
-          BUILD_TOOLS_VERSION=$(ls $ANDROID_SDK_ROOT/build-tools/ | sort -V | tail -1)
-          $ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS_VERSION/apksigner verify \
-            --verbose redroid-v1.0.2-signed.apk 2>&1 | head -20
+          BTV=$(ls $ANDROID_SDK_ROOT/build-tools/ | sort -V | tail -1)
+          $ANDROID_SDK_ROOT/build-tools/${BTV}/apksigner verify \
+            --verbose "${{ env.SIGNED_APK }}" 2>&1 | head -15
 
-      - name: Upload APK as build artifact
+      # ─── 8. Upload & Release ───────────────────────────────────
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: redroid-apk-signed
-          path: redroid-v1.0.2-signed.apk
+          name: redroid-${{ env.RELEASE_TAG }}
+          path: ${{ env.SIGNED_APK }}
           retention-days: 30
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.2
-          name: "REDroid v1.0.2 — APK Reverse Engineering Tools"
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: "REDroid ${{ env.RELEASE_TAG }}"
           body: |
-            ## REDroid v1.0.2 🔴
+            ## 🔴 REDroid ${{ env.APP_VERSION }}
 
-            Professional Android cybersecurity reference app for APK reverse engineering.
+            مرجع احترافي لأدوات الهندسة العكسية على أندرويد.
 
-            ### Features
-            - 28 professional tools (Jadx, Frida, Ghidra, Burp Suite, MobSF, and more)
-            - 10 reverse engineering techniques with step-by-step guides
-            - Commands reference with copy support
-            - Dark theme optimized for security professionals
+            ### المحتوى
+            - 29 أداة هندسة عكسية احترافية
+            - 10 تقنيات خطوة بخطوة
+            - مرجع أوامر سريع مع نسخ بلمسة
+            - تصميم سايبرسيكيوريتي داكن
 
-            ### Installation
-            1. Download `redroid-v1.0.2-signed.apk`
-            2. Enable "Install from unknown sources" on your Android device
-            3. Install the APK
+            ### التثبيت
+            1. حمّل `${{ env.SIGNED_APK }}`
+            2. فعّل "تثبيت من مصادر غير معروفة"
+            3. ثبّت وشغّل
 
-            **Compatible with Android 5.0+ (API 21+)**
-          files: redroid-v1.0.2-signed.apk
+            **أندرويد 5.0+ (API 21+) | Build #${{ github.run_number }}**
+          files: ${{ env.SIGNED_APK }}
           draft: false
           prerelease: false
           make_latest: true
