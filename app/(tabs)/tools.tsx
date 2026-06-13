@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
@@ -9,6 +9,37 @@ import { ToolCard } from '@/components/ToolCard';
 
 const CATEGORIES = ['All', 'Static', 'Dynamic', 'Network', 'Forensics', 'Root', 'Framework'];
 
+const AnimatedToolCard = ({ tool, onPress }: { tool: any, onPress: () => void }) => {
+  const scale = new Animated.Value(1);
+
+  const onPressIn = () => {
+    Animated.spring(scale, {
+      toValue: 0.96,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const onPressOut = () => {
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <ToolCard 
+        tool={tool} 
+        onPress={() => {
+          onPress();
+        }}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+      />
+    </Animated.View>
+  );
+};
+
 export default function ToolsScreen() {
   const router = useRouter();
   const [search, setSearch] = useState('');
@@ -16,25 +47,32 @@ export default function ToolsScreen() {
 
   const filteredTools = TOOLS.filter(tool => {
     const matchesSearch = tool.name.toLowerCase().includes(search.toLowerCase()) || 
-                         tool.tagline.toLowerCase().includes(search.toLowerCase());
+                         tool.tagline.toLowerCase().includes(search.toLowerCase()) ||
+                         tool.category.toLowerCase().includes(search.toLowerCase());
     const matchesCategory = activeCategory === 'All' || tool.category === activeCategory;
     return matchesSearch && matchesCategory;
   });
 
   return (
     <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>الأدوات الاحترافية</Text>
+        <Text style={styles.headerSub}>مكتبة شاملة للهندسة العكسية واختبار الأمان</Text>
+      </View>
+
       <View style={styles.searchContainer}>
-        <Feather name="search" size={18} color={C.textMuted} style={styles.searchIcon} />
+        <Feather name="search" size={20} color={C.green} style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search tools..."
+          placeholder="ابحث عن أداة (JADX, Frida...)"
           placeholderTextColor={C.textMuted}
           value={search}
           onChangeText={setSearch}
+          clearButtonMode="while-editing"
         />
       </View>
 
-      <View style={styles.filtersContainer}>
+      <View style={styles.filtersWrapper}>
         <FlatList
           data={CATEGORIES}
           horizontal
@@ -42,9 +80,10 @@ export default function ToolsScreen() {
           keyExtractor={(item) => item}
           renderItem={({ item }) => (
             <TouchableOpacity
+              activeOpacity={0.7}
               style={[
-                styles.filterBadge,
-                activeCategory === item && styles.filterBadgeActive
+                styles.filterChip,
+                activeCategory === item && styles.filterChipActive
               ]}
               onPress={() => setActiveCategory(item)}
             >
@@ -60,19 +99,26 @@ export default function ToolsScreen() {
         />
       </View>
 
+      <View style={styles.countContainer}>
+        <Text style={styles.countText}>تم العثور على {filteredTools.length} أداة</Text>
+      </View>
+
       <FlatList
         data={filteredTools}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <ToolCard 
+          <AnimatedToolCard 
             tool={item} 
             onPress={() => router.push(`/tool/${item.id}`)} 
           />
         )}
         contentContainerStyle={styles.listContent}
+        numColumns={1}
+        showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={styles.emptyText}>No tools found matching your criteria.</Text>
+            <Feather name="slash" size={48} color={C.textMuted} style={{ marginBottom: 16 }} />
+            <Text style={styles.emptyText}>لم يتم العثور على نتائج للبحث المكتوب.</Text>
           </View>
         }
       />
@@ -85,42 +131,60 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: C.bg,
   },
+  header: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 16,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: C.text,
+  },
+  headerSub: {
+    fontSize: 14,
+    color: C.textMuted,
+    marginTop: 4,
+  },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: C.surface,
-    margin: 16,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    paddingHorizontal: 16,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: C.border,
+    height: 50,
   },
   searchIcon: {
-    marginRight: 8,
+    marginRight: 12,
   },
   searchInput: {
     flex: 1,
-    height: 44,
     color: C.text,
     fontSize: 16,
+    textAlign: 'right',
   },
-  filtersContainer: {
-    marginBottom: 8,
+  filtersWrapper: {
+    marginBottom: 12,
   },
   filtersContent: {
     paddingHorizontal: 16,
+    paddingBottom: 4,
   },
-  filterBadge: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+  filterChip: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 25,
     backgroundColor: C.surfaceAlt,
-    marginRight: 8,
+    marginRight: 10,
     borderWidth: 1,
     borderColor: C.border,
   },
-  filterBadgeActive: {
-    backgroundColor: C.greenMuted,
+  filterChipActive: {
+    backgroundColor: 'rgba(0, 255, 136, 0.15)',
     borderColor: C.green,
   },
   filterText: {
@@ -131,15 +195,30 @@ const styles = StyleSheet.create({
   filterTextActive: {
     color: C.green,
   },
+  countContainer: {
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  countText: {
+    color: C.textMuted,
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
   listContent: {
     padding: 16,
+    paddingTop: 0,
+    paddingBottom: 32,
   },
   empty: {
     alignItems: 'center',
-    marginTop: 40,
+    marginTop: 60,
+    paddingHorizontal: 40,
   },
   emptyText: {
     color: C.textMuted,
     fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
   },
 });
