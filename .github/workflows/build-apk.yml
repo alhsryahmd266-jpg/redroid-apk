@@ -1,0 +1,94 @@
+name: Build & Release Android APK
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: artifacts/mobile/package.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        working-directory: artifacts/mobile
+        run: npm install --legacy-peer-deps
+
+      - name: Install Expo CLI
+        run: npm install -g @expo/cli
+
+      - name: Generate native Android project
+        working-directory: artifacts/mobile
+        run: npx expo prebuild --platform android --clean --no-install
+        env:
+          EXPO_NO_TELEMETRY: 1
+
+      - name: Make Gradle executable
+        working-directory: artifacts/mobile/android
+        run: chmod +x gradlew
+
+      - name: Build Release APK
+        working-directory: artifacts/mobile/android
+        run: ./gradlew assembleRelease --no-daemon
+        env:
+          GRADLE_OPTS: -Xmx4g -XX:MaxMetaspaceSize=512m
+
+      - name: Sign APK
+        id: sign_app
+        uses: r0adkll/sign-android-release@v1
+        with:
+          releaseDirectory: artifacts/mobile/android/app/build/outputs/apk/release
+          signingKeyBase64: ${{ secrets.KEYSTORE_BASE64 }}
+          alias: ${{ secrets.KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.STORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: REDroid-APK
+          path: ${{ steps.sign_app.outputs.signedReleaseFile }}
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ steps.sign_app.outputs.signedReleaseFile }}
+          name: REDroid ${{ github.ref_name }}
+          body: |
+            ## REDroid ${{ github.ref_name }}
+            
+            🔴 **أداة الهندسة العكسية الاحترافية لملفات APK**
+            
+            ### التحميل
+            قم بتحميل ملف `app-release-signed.apk` أدناه وثبّته على جهازك.
+            
+            ### الجديد في هذا الإصدار
+            - دليل 14 أداة هندسة عكسية عالمية
+            - 10 تقنيات تفصيلية خطوة بخطوة
+            - مرجع أوامر شامل مع إمكانية النسخ
+            - تصميم سايبرسيكيوريتي احترافي
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
