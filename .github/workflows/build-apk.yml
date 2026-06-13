@@ -14,7 +14,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -34,7 +34,7 @@ jobs:
       - name: Install Expo CLI
         run: npm install -g @expo/cli
 
-      - name: Run expo prebuild (generate android/ folder)
+      - name: Generate native Android project (expo prebuild)
         run: npx expo prebuild --platform android --clean --no-install
         env:
           EXPO_NO_TELEMETRY: 1
@@ -60,60 +60,58 @@ jobs:
             -keypass redroid2024 \
             -dname "CN=REDroid, OU=SecurityTools, O=REDroid, L=Cairo, S=Cairo, C=EG" \
             -noprompt
+          echo "Keystore generated ✓"
 
       - name: Sign APK with apksigner
         run: |
-          BUILD_TOOLS=$ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools/ | sort -V | tail -1)
-          $BUILD_TOOLS/apksigner sign \
+          BUILD_TOOLS_VER=$(ls $ANDROID_SDK_ROOT/build-tools/ | sort -V | tail -1)
+          echo "Using build-tools: $BUILD_TOOLS_VER"
+          $ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS_VER/apksigner sign \
             --ks /tmp/redroid.keystore \
             --ks-key-alias redroid-key \
             --ks-pass pass:redroid2024 \
             --key-pass pass:redroid2024 \
             --out android/app/build/outputs/apk/release/REDroid-signed.apk \
             android/app/build/outputs/apk/release/app-release-unsigned.apk
-          echo "APK signed successfully ✓"
-          ls -lh android/app/build/outputs/apk/release/
+          echo "APK signed ✓"
 
       - name: Verify APK signature
         run: |
-          BUILD_TOOLS=$ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools/ | sort -V | tail -1)
-          $BUILD_TOOLS/apksigner verify --verbose \
+          BUILD_TOOLS_VER=$(ls $ANDROID_SDK_ROOT/build-tools/ | sort -V | tail -1)
+          $ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS_VER/apksigner verify \
+            --verbose \
             android/app/build/outputs/apk/release/REDroid-signed.apk
-          echo "Signature valid ✓"
+          ls -lh android/app/build/outputs/apk/release/
+          echo "Signature verified ✓"
 
-      - name: Upload APK as artifact
+      - name: Upload APK as build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: REDroid-APK-${{ github.sha }}
+          name: REDroid-APK
           path: android/app/build/outputs/apk/release/REDroid-signed.apk
           retention-days: 90
 
-      - name: Create GitHub Release with APK
+      - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: android/app/build/outputs/apk/release/REDroid-signed.apk
-          name: "🔴 REDroid ${{ github.ref_name }}"
+          name: "REDroid ${{ github.ref_name }}"
           body: |
             ## 🔴 REDroid ${{ github.ref_name }}
             ### أقوى مرجع لأدوات الهندسة العكسية على أندرويد
 
-            ---
-
-            ### 📥 التحميل
-            انقر على **`REDroid-signed.apk`** أدناه لتحميل التطبيق مباشرة.
+            ### 📥 تحميل التطبيق
+            اضغط على **REDroid-signed.apk** أدناه
 
             ### ✨ الميزات
-            - **14 أداة** هندسة عكسية عالمية (JADX, Frida, Ghidra, APKTool, ...)
-            - **10 تقنيات** تفصيلية خطوة بخطوة
-            - مرجع أوامر شامل مع نسخ بلمسة واحدة
-            - تصميم سايبرسيكيوريتي احترافي (Dark Mode حصري)
+            - 14 أداة هندسة عكسية عالمية (JADX, Frida, Ghidra, APKTool...)
+            - 10 تقنيات تفصيلية خطوة بخطوة
+            - مرجع أوامر مع نسخ بلمسة واحدة
+            - تصميم Cybersecurity احترافي داكن
 
             ### 🔐 التوقيع الرقمي
-            التطبيق موقّع رقمياً بـ RSA-2048. للتثبيت:
-            1. فعّل "مصادر غير معروفة" في الإعدادات
-            2. افتح REDroid-signed.apk
-            3. اضغط تثبيت
+            موقّع بـ RSA-2048. فعّل "مصادر غير معروفة" ثم ثبّت.
           draft: false
           prerelease: false
         env:
