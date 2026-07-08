@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -18,12 +19,12 @@ import * as FileSystem from 'expo-file-system';
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { C } from '@/constants/colors';
-import { initModel, generateCompletion, getModelState, ModelState, unloadModel, copyModelToLocal } from '@/lib/localLLM';
+import { initModel, runAgentLoop, getModelState, ModelState, unloadModel, copyModelToLocal } from '@/lib/localLLM';
 
 interface Message {
   id: string;
   text: string;
-  sender: 'user' | 'ai';
+  sender: 'user' | 'ai' | 'tool';
 }
 
 export default function AIScreen() {
@@ -34,6 +35,12 @@ export default function AIScreen() {
   const [modelState, setModelState] = useState<ModelState>(getModelState());
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  
+  // Settings
+  const [useAcceleration, setUseAcceleration] = useState(true);
+  const [useAgenticSearch, setUseAgenticSearch] = useState(true);
+  const [gpuLayers, setGpuLayers] = useState(0);
   
   const flatListRef = useRef<FlatList>(null);
 
@@ -59,12 +66,36 @@ export default function AIScreen() {
 
     try {
       let fullText = '';
-      await generateCompletion(input, (token) => {
-        fullText += token;
-        setMessages((prev) =>
-          prev.map((m) => (m.id === aiMsgId ? { ...m, text: fullText } : m))
+      
+      if (useAgenticSearch) {
+        await runAgentLoop(
+          input, 
+          (token) => {
+            fullText += token;
+            setMessages((prev) =>
+              prev.map((m) => (m.id === aiMsgId ? { ...m, text: fullText } : m))
+            );
+          },
+          (cmd, res) => {
+            const toolMsgId = `tool-${Date.now()}`;
+            setMessages((prev) => [
+              ...prev,
+              { id: toolMsgId, text: `🔧 Executing: ${cmd}\n\nResult:\n${res.slice(0, 500)}${res.length > 500 ? '...' : ''}`, sender: 'tool' }
+            ]);
+          }
         );
-      });
+      } else {
+        // We can keep generateCompletion or just use runAgentLoop without onToolCall
+        await runAgentLoop(
+          input, 
+          (token) => {
+            fullText += token;
+            setMessages((prev) =>
+              prev.map((m) => (m.id === aiMsgId ? { ...m, text: fullText } : m))
+            );
+          }
+        );
+      }
     } catch (error) {
       console.error(error);
       Alert.alert(
@@ -76,7 +107,6 @@ export default function AIScreen() {
             text: 'Open Terminal', 
             onPress: async () => {
               await Clipboard.setStringAsync(input);
-              // T012 will implement terminal, but we can prepare the route
               router.push('/terminal' as any);
             }
           }
@@ -90,7 +120,7 @@ export default function AIScreen() {
   const handleImportModel = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: '*/*', // Ideally .gguf, but DocumentPicker type filtering is platform-specific
+        type: '*/*',
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -102,7 +132,11 @@ export default function AIScreen() {
 
         setModelState('loading');
         const localPath = await copyModelToLocal(asset.uri, asset.name);
-        await initModel(localPath);
+        await initModel(localPath, {
+          n_threads: useAcceleration ? 8 : 4,
+          flash_attn: useAcceleration,
+          n_gpu_layers: gpuLayers
+        });
         setModelState(getModelState());
         Alert.alert('Success', 'Model imported and loaded successfully.');
       }
@@ -140,7 +174,11 @@ export default function AIScreen() {
           setIsDownloading(false);
           
           if (result) {
-            await initModel(result.uri);
+            await initModel(result.uri, {
+              n_threads: useAcceleration ? 8 : 4,
+              flash_attn: useAcceleration,
+              n_gpu_layers: gpuLayers
+            });
             setModelState(getModelState());
             Alert.alert('Success', 'Model downloaded and loaded.');
           }
@@ -158,20 +196,47 @@ export default function AIScreen() {
   const renderMessage = ({ item }: { item: Message }) => (
     <View style={[
       styles.messageBubble,
-      item.sender === 'user' ? styles.userBubble : styles.aiBubble
+      item.sender === 'user' ? styles.userBubble : 
+      item.sender === 'tool' ? styles.toolBubble : styles.aiBubble
     ]}>
-      <Text style={styles.messageText}>{item.text}</Text>
+      <Text style={[styles.messageText, item.sender === 'tool' && styles.toolText]}>{item.text}</Text>
     </View>
   );
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>REDroid AI</Text>
+        <View>
+          <Text style={styles.headerTitle}>REDroid AI</Text>
+          <TouchableOpacity onPress={() => setShowSettings(!showSettings)}>
+            <Text style={{ color: C.green, fontSize: 12 }}>{showSettings ? 'Hide Settings' : 'AI Settings'}</Text>
+          </TouchableOpacity>
+        </View>
         <View style={[styles.statusBadge, { backgroundColor: getStatusColor(modelState) }]}>
           <Text style={styles.statusText}>{modelState.toUpperCase()}</Text>
         </View>
       </View>
+
+      {showSettings && (
+        <View style={styles.settingsPanel}>
+          <View style={styles.settingRow}>
+            <Text style={styles.settingLabel}>Performance Acceleration</Text>
+            <Switch value={useAcceleration} onValueChange={setUseAcceleration} trackColor={{ true: C.green }} />
+          </View>
+          <View style={styles.settingRow}>
+            <Text style={styles.settingLabel}>Agentic Tool Use (Search/Terminal)</Text>
+            <Switch value={useAgenticSearch} onValueChange={setUseAgenticSearch} trackColor={{ true: C.green }} />
+          </View>
+          <View style={styles.settingRow}>
+            <Text style={styles.settingLabel}>GPU Offload Layers (iOS)</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <TouchableOpacity onPress={() => setGpuLayers(Math.max(0, gpuLayers - 5))}><Feather name="minus" size={20} color={C.green} /></TouchableOpacity>
+              <Text style={{ color: C.text, marginHorizontal: 10 }}>{gpuLayers}</Text>
+              <TouchableOpacity onPress={() => setGpuLayers(gpuLayers + 5)}><Feather name="plus" size={20} color={C.green} /></TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
 
       {modelState !== 'ready' && !isDownloading && (
         <View style={styles.setupContainer}>
@@ -321,7 +386,7 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   messageBubble: {
-    maxWidth: '80%',
+    maxWidth: '85%',
     padding: 12,
     borderRadius: 16,
     marginBottom: 12,
@@ -337,6 +402,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.border,
     borderBottomLeftRadius: 4,
+  },
+  toolBubble: {
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0, 255, 0, 0.05)',
+    borderWidth: 1,
+    borderColor: C.green,
+    borderRadius: 8,
+    width: '100%',
+    maxWidth: '100%',
+  },
+  toolText: {
+    fontSize: 12,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    color: C.green,
   },
   messageText: {
     color: C.text,
@@ -380,5 +459,21 @@ const styles = StyleSheet.create({
   progressBarFill: {
     height: '100%',
     backgroundColor: C.green,
+  },
+  settingsPanel: {
+    padding: 16,
+    backgroundColor: C.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  settingRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  settingLabel: {
+    color: C.text,
+    fontSize: 14,
   },
 });
