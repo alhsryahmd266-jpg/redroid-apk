@@ -24,6 +24,7 @@ function RootLayoutNav() {
     <Stack screenOptions={{ headerBackTitle: "Back" }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="tool/[id]" options={{ title: '', headerStyle: {backgroundColor: C.bg}, headerTintColor: C.green }} />
+      <Stack.Screen name="terminal" options={{ title: 'Terminal', headerStyle: {backgroundColor: '#000'}, headerTintColor: C.green, presentation: 'modal' }} />
     </Stack>
   );
 }
