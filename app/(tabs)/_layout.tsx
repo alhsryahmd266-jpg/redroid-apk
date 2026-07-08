@@ -49,6 +49,13 @@ export default function TabLayout() {
           tabBarIcon: ({color}) => <Feather name="terminal" size={22} color={color} /> 
         }} 
       />
+      <Tabs.Screen 
+        name="ai" 
+        options={{ 
+          title: 'الذكاء الاصطناعي', 
+          tabBarIcon: ({color}) => <Feather name="cpu" size={22} color={color} /> 
+        }} 
+      />
     </Tabs>
   );
 }
