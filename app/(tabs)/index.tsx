@@ -71,6 +71,18 @@ export default function HomeScreen() {
           <Text style={styles.bannerText}>Used at DEF CON & Black Hat</Text>
         </View>
 
+        <TouchableOpacity 
+          style={styles.terminalButton}
+          onPress={() => router.push('/terminal')}
+        >
+          <Feather name="terminal" size={24} color={C.green} />
+          <View style={styles.terminalButtonTextContainer}>
+            <Text style={styles.terminalButtonTitle}>Open Terminal</Text>
+            <Text style={styles.terminalButtonSubtitle}>Direct shell access & utilities</Text>
+          </View>
+          <Feather name="chevron-right" size={20} color={C.green} />
+        </TouchableOpacity>
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Elite Tools</Text>
           {eliteTools.map(tool => (
@@ -233,5 +245,30 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 12,
     textAlign: 'center',
+  },
+  terminalButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.surface,
+    marginHorizontal: 20,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: C.green + '80',
+    marginBottom: 24,
+  },
+  terminalButtonTextContainer: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  terminalButtonTitle: {
+    color: C.green,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  terminalButtonSubtitle: {
+    color: C.textMuted,
+    fontSize: 12,
+    marginTop: 2,
   },
 });
