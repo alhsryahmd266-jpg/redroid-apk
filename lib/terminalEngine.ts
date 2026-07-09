@@ -2,7 +2,7 @@ import { Linking } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Crypto from 'expo-crypto';
 import JSZip from 'jszip';
-import { generateCompletion, getModelState } from './localLLM';
+import { getModelState } from './localLLM';
 import { searchKnowledge } from './knowledgeBase';
 import { analyzeApk } from './apkAnalyzer';
 
@@ -295,12 +295,7 @@ class TerminalEngine {
       return [{ type: 'error', content: 'AI model is not loaded. Please go to the AI tab to load a model first.' }];
     }
     
-    let fullResponse = '';
-    await generateCompletion(prompt, (token) => {
-      fullResponse += token;
-    });
-    
-    return [{ type: 'output', content: fullResponse }];
+    return [{ type: 'output', content: 'Use the AI tab for direct model interaction. Type your question there.' }];
   }
 
   private knowledge(query: string): TerminalLine[] {
@@ -386,8 +381,8 @@ class TerminalEngine {
     
     if (result.signingInfo) {
       output += `\nSigning Info:\n`;
-      output += `  Issuer: ${result.signingInfo.issuer}\n`;
-      output += `  Validity: ${result.signingInfo.validity}\n`;
+      output += `  Issuer: ${result.signingInfo.certSubject}\n`;
+      output += `  Subject: ${result.signingInfo.certSubject || 'N/A'}\n`;
     }
 
     const dangerous = ['android.permission.INTERNET', 'android.permission.READ_EXTERNAL_STORAGE', 'android.permission.WRITE_EXTERNAL_STORAGE', 'android.permission.CAMERA', 'android.permission.RECORD_AUDIO', 'android.permission.ACCESS_FINE_LOCATION'];
