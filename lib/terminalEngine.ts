@@ -1,3 +1,4 @@
+import { Linking } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Crypto from 'expo-crypto';
 import JSZip from 'jszip';
@@ -120,6 +121,9 @@ class TerminalEngine {
 
         case 'search':
           return await this.search(params.join(' '));
+
+        case 'termux':
+          return await this.termux(params.join(' '));
 
         case 'ai':
           return await this.ai(params.join(' '));
@@ -402,6 +406,21 @@ class TerminalEngine {
   getPrompt(): string {
     return `redroid@device:${this.currentDir}$ `;
   }
+  private async termux(command: string): Promise<TerminalLine[]> {
+    const cmd = command.trim() || '';
+    try {
+      const { setStringAsync } = await import('expo-clipboard') as any;
+      if (cmd && setStringAsync) await setStringAsync(cmd);
+    } catch {}
+    try {
+      const { Linking } = await import('react-native') as any;
+      await Linking.openURL('intent://#Intent;package=com.termux;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;end');
+      return [{ type: 'output', content: cmd ? 'Termux opened. Command copied to clipboard.' : 'Termux opened.' }];
+    } catch {
+      return [{ type: 'error', content: 'Termux not installed. Get it from F-Droid.' }];
+    }
+  }
+
 }
 
 export const terminalEngine = new TerminalEngine();
