@@ -1,9 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Clipboard } from 'react-native';
+import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Clipboard, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { terminalEngine, TerminalLine } from '@/lib/terminalEngine';
 import { C } from '@/constants/colors';
+import { saveTerminalCommand, getTerminalHistory, clearTerminalHistory } from '@/lib/db';
 
 export default function TerminalScreen() {
   const [history, setHistory] = useState<TerminalLine[]>([
@@ -18,11 +21,22 @@ export default function TerminalScreen() {
   const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
+    loadTerminalHistory();
     // Auto-scroll to bottom when history changes
     setTimeout(() => {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 100);
   }, [history]);
+
+  const loadTerminalHistory = async () => {
+    // Only load once
+    if (commandHistory.length === 0) {
+      const dbHistory = await getTerminalHistory(50);
+      if (dbHistory.length > 0) {
+        setCommandHistory(dbHistory.map(h => h.command));
+      }
+    }
+  };
 
   const handleCommand = async () => {
     const trimmedInput = input.trim();
@@ -37,6 +51,10 @@ export default function TerminalScreen() {
 
     const results = await terminalEngine.execute(trimmedInput);
     
+    // Save to DB
+    const output = results.map(r => r.content).join('\n');
+    saveTerminalCommand(trimmedInput, output);
+
     if (results.some(r => r.content === 'CLEAR_TERMINAL')) {
       setHistory([]);
     } else {
@@ -63,6 +81,33 @@ export default function TerminalScreen() {
     Clipboard.setString(text);
   };
 
+  const handlePickAndAnalyze = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/vnd.android.package-archive', '*/*'],
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      
+      setHistory(prev => [...prev, { type: 'input', content: `[User picked: ${asset.name}]` }]);
+      setHistory(prev => [...prev, { type: 'output', content: `Analyzing ${asset.name}...` }]);
+
+      // We need to move the file to a place where analyzeApk can access it 
+      // or just pass the uri if analyzeApk supports it.
+      // Our analyzeApk currently uses FileSystem.getInfoAsync which works with URIs.
+      
+      const results = await terminalEngine.execute(`analyze ${asset.uri}`);
+      setHistory(prev => [...prev, ...results]);
+    } catch (error: any) {
+      setHistory(prev => [...prev, { type: 'error', content: `Picker error: ${error.message}` }]);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -70,9 +115,27 @@ export default function TerminalScreen() {
           <Feather name="terminal" size={18} color={C.green} />
           <Text style={styles.title}>TERMINAL</Text>
         </View>
-        <TouchableOpacity onPress={copyToClipboard} style={styles.copyButton}>
-          <Feather name="copy" size={18} color={C.green} />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity onPress={handlePickAndAnalyze} style={styles.actionButton}>
+            <Feather name="file-plus" size={18} color={C.green} />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            onLongPress={() => {
+              Alert.alert('Clear History', 'Clear command history?', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Clear', style: 'destructive', onPress: async () => {
+                  await clearTerminalHistory();
+                  setCommandHistory([]);
+                  setHistoryIndex(-1);
+                }}
+              ]);
+            }}
+            onPress={copyToClipboard} 
+            style={styles.actionButton}
+          >
+            <Feather name="copy" size={18} color={C.green} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView 
@@ -153,8 +216,13 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     letterSpacing: 2,
   },
-  copyButton: {
-    padding: 4,
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionButton: {
+    padding: 8,
+    marginLeft: 8,
   },
   terminal: {
     flex: 1,
