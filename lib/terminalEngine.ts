@@ -2,6 +2,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Crypto from 'expo-crypto';
 import JSZip from 'jszip';
 import { generateCompletion, getModelState } from './localLLM';
+import { searchKnowledge } from './knowledgeBase';
+import { analyzeApk } from './apkAnalyzer';
 
 // Root directory for our virtual filesystem
 const ROOT_DIR = `${FileSystem.documentDirectory}redroid/`;
@@ -49,7 +51,21 @@ class TerminalEngine {
     try {
       switch (cmd) {
         case 'help':
-          return [{ type: 'output', content: 'Available commands: ls, cd, pwd, mkdir, touch, cat, rm, cp, mv, echo, clear, help, curl, wget, strings, hexdump, md5sum, sha256sum, base64, unzip, search' }];
+          return [{ type: 'output', content: 'Available commands: ls, cd, pwd, mkdir, touch, cat, rm, cp, mv, echo, clear, help, curl, wget, strings, hexdump, md5sum, sha256sum, base64, unzip, search, ai, knowledge, dns, whois, portcheck, analyze' }];
+        
+        case 'analyze':
+          return await this.analyze(params[0]);
+        case 'knowledge':
+          return this.knowledge(params.join(' '));
+
+        case 'dns':
+          return await this.dns(params[0]);
+
+        case 'whois':
+          return await this.whois(params[0]);
+
+        case 'portcheck':
+          return await this.portcheck(params[0], params[1]);
         
         case 'ls':
           return await this.ls(params[0] || '.');
@@ -281,6 +297,106 @@ class TerminalEngine {
     });
     
     return [{ type: 'output', content: fullResponse }];
+  }
+
+  private knowledge(query: string): TerminalLine[] {
+    if (!query) throw new Error('Missing query');
+    const result = searchKnowledge(query);
+    return [{ type: 'output', content: result || 'No matching knowledge found localy. Try using "search" to look online.' }];
+  }
+
+  private async dns(hostname: string): Promise<TerminalLine[]> {
+    if (!hostname) throw new Error('Missing hostname');
+    try {
+      const response = await fetch(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=A`, {
+        headers: { 'accept': 'application/dns-json' }
+      });
+      const data = await response.json();
+      if (data.Answer) {
+        const answers = data.Answer.map((a: any) => `${a.name} [${a.type === 1 ? 'A' : a.type}] -> ${a.data}`).join('\n');
+        return [{ type: 'output', content: `DNS records for ${hostname}:\n${answers}` }];
+      }
+      return [{ type: 'output', content: `No A records found for ${hostname}` }];
+    } catch (e: any) {
+      throw new Error(`DNS lookup failed: ${e.message}`);
+    }
+  }
+
+  private async whois(domain: string): Promise<TerminalLine[]> {
+    if (!domain) throw new Error('Missing domain');
+    try {
+      const response = await fetch(`https://rdap.org/domain/${encodeURIComponent(domain)}`);
+      if (response.status === 404) return [{ type: 'output', content: 'Domain not found' }];
+      const data = await response.json();
+      
+      const events = data.events ? data.events.map((e: any) => `${e.eventAction}: ${e.eventDate}`).join('\n') : 'No events found';
+      const entities = data.entities ? data.entities.map((ent: any) => ent.handle).join(', ') : 'No entities found';
+      
+      return [{ type: 'output', content: `WHOIS/RDAP for ${domain}:\nStatus: ${data.status?.join(', ') || 'N/A'}\nEvents:\n${events}\nEntities: ${entities}` }];
+    } catch (e: any) {
+      throw new Error(`WHOIS lookup failed: ${e.message}`);
+    }
+  }
+
+  private async portcheck(host: string, port: string): Promise<TerminalLine[]> {
+    if (!host || !port) throw new Error('Usage: portcheck <host> <port>');
+    
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      // Note: This is an HTTP-level check as raw TCP is not directly available via fetch.
+      // We try both http and https to see if something answers.
+      const url = `http://${host}:${port}`;
+      const response = await fetch(url, { signal: controller.signal, method: 'HEAD' }).catch(() => null);
+      
+      clearTimeout(timeout);
+      
+      if (response) {
+        return [{ type: 'output', content: `Port ${port} on ${host} is OPEN (HTTP response: ${response.status})` }];
+      } else {
+        // If fetch failed, it might be closed or just not an HTTP server.
+        // In RN, we can't easily distinguish without native modules, but we'll report it as likely closed or non-HTTP.
+        return [{ type: 'output', content: `Port ${port} on ${host} is CLOSED or not responding to HTTP HEAD` }];
+      }
+    } catch (e: any) {
+      if (e.name === 'AbortError') {
+        return [{ type: 'output', content: `Port ${port} on ${host} TIMEOUT (Likely closed or filtered)` }];
+      }
+      return [{ type: 'error', content: `Port check failed: ${e.message}` }];
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async analyze(path: string): Promise<TerminalLine[]> {
+    if (!path) throw new Error('Missing argument: <path-to-apk>');
+    const target = this.getPhysicalPath(path);
+    const result = await analyzeApk(target);
+    
+    let output = `APK Analysis Report: ${path}\n`;
+    output += `-----------------------------------\n`;
+    output += `Package: ${result.packageName}\n`;
+    output += `Version: ${result.versionName} (${result.versionCode})\n`;
+    output += `SDK: Min ${result.minSdkVersion}, Target ${result.targetSdkVersion}\n`;
+    
+    if (result.signingInfo) {
+      output += `\nSigning Info:\n`;
+      output += `  Issuer: ${result.signingInfo.issuer}\n`;
+      output += `  Validity: ${result.signingInfo.validity}\n`;
+    }
+
+    const dangerous = ['android.permission.INTERNET', 'android.permission.READ_EXTERNAL_STORAGE', 'android.permission.WRITE_EXTERNAL_STORAGE', 'android.permission.CAMERA', 'android.permission.RECORD_AUDIO', 'android.permission.ACCESS_FINE_LOCATION'];
+    
+    output += `\nPermissions (${result.permissions.length}):\n`;
+    result.permissions.forEach(p => {
+      const isDangerous = dangerous.some(d => p.includes(d));
+      output += `  ${isDangerous ? '⚠️ ' : '  '}${p}\n`;
+    });
+
+    output += `\nComponents: ${result.activities.length} Activities, ${result.services.length} Services, ${result.receivers.length} Receivers\n`;
+    
+    return [{ type: 'output', content: output }];
   }
 
   getPrompt(): string {
