@@ -3,6 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import { terminalEngine } from './terminalEngine';
+import { searchKnowledge } from './knowledgeBase';
 
 export type ModelState = 'not_loaded' | 'loading' | 'ready' | 'error';
 
@@ -47,13 +48,16 @@ export const initModel = async (modelPath: string, options: InitOptions = {}): P
 };
 
 const AGENT_SYSTEM_PROMPT = `You are REDroid AI, a security-focused assistant. 
-You have access to a terminal to help the user.
+You have access to a terminal and a local knowledge base to help the user.
+ALWAYS check the local knowledge base using 'knowledge <query>' BEFORE using 'search' (internet) if the user asks about tools, APK structure, or general RE concepts.
+
 If you need to search the internet, download a file, or analyze data you don't have, use the following format:
 TOOL_CALL: <command>
+Example: TOOL_CALL: knowledge jadx
 Example: TOOL_CALL: search how to decompile apk
 Example: TOOL_CALL: curl https://example.com/script.sh
 
-Commands available: ls, cd, pwd, cat, curl, wget, strings, hexdump, md5sum, sha256sum, base64, unzip, search.
+Commands available: ls, cd, pwd, cat, curl, wget, strings, hexdump, md5sum, sha256sum, base64, unzip, search, knowledge, dns, whois, portcheck.
 After you get the tool result, provide the final answer to the user.
 Keep your responses concise and technical.
 User current directory: / (ROOT_DIR)`;
