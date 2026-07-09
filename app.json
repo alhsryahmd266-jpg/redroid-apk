@@ -30,11 +30,17 @@
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
-      ["expo-router", {"origin": "https://replit.com/"}],
+      [
+        "expo-router",
+        {
+          "origin": "https://replit.com/"
+        }
+      ],
       "expo-font",
       "expo-web-browser",
       "expo-document-picker",
-      "llama.rn"
+      "llama.rn",
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true,
