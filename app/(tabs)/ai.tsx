@@ -354,6 +354,7 @@ export default function AIScreen() {
 
     try {
       let fullText = '';
+      const chatHistory = messages.filter(m => m.sender !== 'tool').map(m => ({ role: m.sender === 'user' ? 'user' as const : 'assistant' as const, content: m.text }));
       await runAgentLoop(
         text,
         (token) => {
@@ -371,7 +372,8 @@ export default function AIScreen() {
           };
           setMessages(prev => [...prev, toolMsg]);
           saveChatMessage({ ...toolMsg, session_id: 'default', created_at: toolMsg.created_at! });
-        } : undefined
+        } : undefined,
+        chatHistory
       );
       setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, isStreaming: false } : m));
       saveChatMessage({ id: aiMsgId, text: fullText, sender: 'ai', session_id: 'default', created_at: aiCreatedAt });
